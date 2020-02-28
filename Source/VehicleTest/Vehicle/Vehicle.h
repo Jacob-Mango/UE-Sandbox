@@ -7,7 +7,7 @@
 #include "Vehicle.generated.h"
 
 UCLASS()
-class VEHICLETEST_API AVehicle : public AActor
+class VEHICLETEST_API AVehicle : public APawn
 {
 	GENERATED_BODY()
 
@@ -18,20 +18,27 @@ public:
 	class UStaticMeshComponent* MeshComponent;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Inventory, meta = (AllowPrivateAccess = "true"))
-	class UInventoryComponent* InventoryComponent;
+	class UInventoryComponent* Inventory;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Simulation, meta = (AllowPrivateAccess = "true"))
-	TArray<class UVehicleComponent_Wheel*> WheelComponents;
+	TArray<class UVehicleComponent_Wheel*> Wheels;
+
+	//UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+	//class USpringArmComponent* CameraBoom;
 protected:
-	// Called when the game starts or when spawned
+	void InputAccelerator(float Value);
+
+	void InputSteering(float Value);
+
+protected:
 	virtual void BeginPlay() override;
 
+	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 	
 	virtual void OnConstruction(const FTransform& Transform) override;
-
 protected:
 	UFUNCTION()
 	void OnItemAddedToCargo(class AItemBase* item);
@@ -46,5 +53,7 @@ protected:
 	void OnItemDetached(class AItemBase* item);
 
 private:
-	void CalculateWheelSuspension(float DeltaTime, class UVehicleComponent_Wheel* wheel_comp, class AVehicle_Wheel* wheel_actor, FTransform& transform);
+	void CalculateWheelSuspension(float DeltaTime, class UVehicleComponent_Wheel* wheel_comp, class AVehicle_Wheel* wheel_actor, FTransform& transform); 
+
+	void CalculateWheelSlip(float DeltaTime, class UVehicleComponent_Wheel* wheel_comp, class AVehicle_Wheel* wheel_actor, FTransform& transform);
 };

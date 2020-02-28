@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 
-#include "InventoryLocation.h"
+#include "Inventory/InventoryLocation.h"
 
 #include "ItemBase.generated.h"
 

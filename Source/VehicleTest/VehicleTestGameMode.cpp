@@ -1,7 +1,9 @@
 // Copyright 1998-2019 Epic Games, Inc. All Rights Reserved.
 
 #include "VehicleTestGameMode.h"
-#include "VehicleTestCharacter.h"
+
+#include "Player/VehicleTestCharacter.h"
+
 #include "UObject/ConstructorHelpers.h"
 
 AVehicleTestGameMode::AVehicleTestGameMode()

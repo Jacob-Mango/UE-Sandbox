@@ -2,6 +2,7 @@
 
 #include "Vehicle.h"
 
+#include "Components/InputComponent.h"
 #include "Camera/CameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 
@@ -12,24 +13,40 @@
 #include "Vehicle_Wheel.h"
 #include "VehicleComponent_Wheel.h"
 
-#include "../InventoryComponent.h"
+#include "../Inventory/InventoryComponent.h"
 
 // Sets default values
 AVehicle::AVehicle()
 {
  	// Set this pawn to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
-	
+
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	MeshComponent->SetSimulatePhysics(true);
 
-	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
-	InventoryComponent->CargoSize = FIntVector2(10, 10);
+	// Create a camera boom (pulls in towards the player if there is a collision)
+	//CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
+	//CameraBoom->SetupAttachment(Mesh);
+	//CameraBoom->TargetArmLength = 300.0f; // The camera follows at this distance behind the character	
+	//CameraBoom->bUsePawnControlRotation = true; // Rotate the arm based on the controller
 
-	InventoryComponent->OnItemAddedToCargo.AddDynamic(this, &AVehicle::OnItemAddedToCargo);
-	InventoryComponent->OnItemRemovedFromCargo.AddDynamic(this, &AVehicle::OnItemRemovedFromCargo);
-	InventoryComponent->OnItemAttached.AddDynamic(this, &AVehicle::OnItemAttached);
-	InventoryComponent->OnItemDetached.AddDynamic(this, &AVehicle::OnItemDetached);
+	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
+	Inventory->CargoSize = FIntVector2(10, 10);
+
+	Inventory->OnItemAddedToCargo.AddDynamic(this, &AVehicle::OnItemAddedToCargo);
+	Inventory->OnItemRemovedFromCargo.AddDynamic(this, &AVehicle::OnItemRemovedFromCargo);
+	Inventory->OnItemAttached.AddDynamic(this, &AVehicle::OnItemAttached);
+	Inventory->OnItemDetached.AddDynamic(this, &AVehicle::OnItemDetached);
+}
+
+void AVehicle::InputAccelerator(float Value)
+{
+	UE_LOG(LogTemp, Warning, TEXT("InputAccelerator %f"), Value);
+}
+
+void AVehicle::InputSteering(float Value)
+{
+	UE_LOG(LogTemp, Warning, TEXT("InputSteering %f"), Value);
 }
 
 // Called when the game starts or when spawned
@@ -39,13 +56,19 @@ void AVehicle::BeginPlay()
 
 }
 
+void AVehicle::SetupPlayerInputComponent(UInputComponent* inputComponent)
+{
+	Super::SetupPlayerInputComponent(inputComponent);
+
+	inputComponent->BindAxis("VehicleAccelerator", this, &AVehicle::InputAccelerator);
+	inputComponent->BindAxis("VehicleSteering", this, &AVehicle::InputSteering);
+}
+
 void AVehicle::OnConstruction(const FTransform & Transform)
 {
-	UE_LOG(LogTemp, Warning, TEXT("AVehicle::OnConstruction"));
 	Super::OnConstruction(Transform);
 
-	GetComponents(WheelComponents);
-	UE_LOG(LogTemp, Warning, TEXT("AVehicle::OnConstruction - Success"));
+	GetComponents(Wheels);
 }
 
 // Called every frame
@@ -55,17 +78,19 @@ void AVehicle::Tick(float DeltaTime)
 
 	TArray<UVehicleComponent_Wheel*> processingWheels;
 	
-	for (int32 i = 0; i < WheelComponents.Num(); i++)
+	for (int32 i = 0; i < Wheels.Num(); i++)
 	{
-		UVehicleComponent_Wheel* wheel_comp = WheelComponents[i];
+		UVehicleComponent_Wheel* wheel_comp = Wheels[i];
 		FName socket_name = wheel_comp->GetAttachSocketName();
-		AVehicle_Wheel* wheel_actor = Cast<AVehicle_Wheel>(InventoryComponent->GetAttachment(socket_name));
+		AVehicle_Wheel* wheel_actor = Cast<AVehicle_Wheel>(Inventory->GetAttachment(socket_name));
 		if (wheel_actor == NULL)
 			continue;
 
 		processingWheels.Add(wheel_comp);
 
 		FTransform trans = MeshComponent->GetSocketTransform(socket_name);
+
+		trans.SetRotation(trans.TransformRotation(FQuat::MakeFromEuler(FVector(wheel_comp->WheelAngle, 0, 0))));
 
 		CalculateWheelSuspension(DeltaTime, wheel_comp, wheel_actor, trans);
 
@@ -95,6 +120,9 @@ void AVehicle::CalculateWheelSuspension(float DeltaTime, UVehicleComponent_Wheel
 
 	FVector newWheelPosition = EndTrace;
 
+	DrawDebugLine(GetWorld(), StartTrace, StartTrace + transform.GetUnitAxis(EAxis::X) * RayLength, FColor::Red, false, -1, 0, 1);
+	DrawDebugLine(GetWorld(), StartTrace, StartTrace + transform.GetUnitAxis(EAxis::Y) * RayLength, FColor::Blue, false, -1, 0, 1);
+
 	DrawDebugLine(GetWorld(), StartTrace, EndTrace, FColor::Green, false, -1, 0, 1);
 	if (GetWorld()->LineTraceSingleByChannel(result, StartTrace, EndTrace, ECollisionChannel::ECC_WorldStatic))
 	{
@@ -119,6 +147,11 @@ void AVehicle::CalculateWheelSuspension(float DeltaTime, UVehicleComponent_Wheel
 	wheel_comp->SuspensionApplyForce = newWheelPosition;
 
 	transform.SetLocation(newWheelPosition);
+}
+
+void AVehicle::CalculateWheelSlip(float DeltaTime, UVehicleComponent_Wheel * wheel_comp, AVehicle_Wheel * wheel_actor, FTransform & transform)
+{
+
 }
 
 void AVehicle::OnItemAddedToCargo(AItemBase* item)

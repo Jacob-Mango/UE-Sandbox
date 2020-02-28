@@ -1,0 +1,183 @@
+// Copyright 1998-2019 Epic Games, Inc. All Rights Reserved.
+
+#include "VehicleTestCharacter.h"
+
+#include "HeadMountedDisplayFunctionLibrary.h"
+#include "Camera/CameraComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/InputComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/Controller.h"
+#include "GameFramework/SpringArmComponent.h"
+
+#include "GameFramework/PlayerController.h"
+
+#include "../Vehicle/Vehicle.h"
+#include "VT_PlayerController.h"
+
+//////////////////////////////////////////////////////////////////////////
+// AVehicleTestCharacter
+
+AVehicleTestCharacter::AVehicleTestCharacter()
+{
+	// Set size for collision capsule
+	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
+
+	// set our turn rates for input
+	BaseTurnRate = 45.f;
+	BaseLookUpRate = 45.f;
+
+	// Don't rotate when the controller rotates. Let that just affect the camera.
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationYaw = false;
+	bUseControllerRotationRoll = false;
+
+	// Configure character movement
+	GetCharacterMovement()->bOrientRotationToMovement = true; // Character moves in the direction of input...	
+	GetCharacterMovement()->RotationRate = FRotator(0.0f, 540.0f, 0.0f); // ...at this rotation rate
+	GetCharacterMovement()->JumpZVelocity = 600.f;
+	GetCharacterMovement()->AirControl = 0.2f;
+
+	// Create a camera boom (pulls in towards the player if there is a collision)
+	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
+	CameraBoom->SetupAttachment(RootComponent);
+	CameraBoom->TargetArmLength = 300.0f; // The camera follows at this distance behind the character	
+	CameraBoom->bUsePawnControlRotation = true; // Rotate the arm based on the controller
+
+	// Create a follow camera
+	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
+	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
+	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
+
+	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
+	// are set in the derived blueprint asset named MyCharacter (to avoid direct content references in C++)
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Input
+
+void AVehicleTestCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+}
+
+void AVehicleTestCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	AVT_PlayerController* player_controller = Cast<AVT_PlayerController>(NewController);
+	if (player_controller != nullptr)
+	{
+		player_controller->SetViewTarget(this);
+	}
+}
+
+void AVehicleTestCharacter::SetupPlayerInputComponent(UInputComponent* inputComponent)
+{
+	Super::SetupPlayerInputComponent(inputComponent);
+
+	// Set up gameplay key bindings
+	inputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
+	inputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
+
+	inputComponent->BindAxis("MoveForward", this, &AVehicleTestCharacter::MoveForward);
+	inputComponent->BindAxis("MoveRight", this, &AVehicleTestCharacter::MoveRight);
+
+	// We have 2 versions of the rotation bindings to handle different kinds of devices differently
+	// "turn" handles devices that provide an absolute delta, such as a mouse.
+	// "turnrate" is for devices that we choose to treat as a rate of change, such as an analog joystick
+	inputComponent->BindAxis("Turn", this, &APawn::AddControllerYawInput);
+	inputComponent->BindAxis("TurnRate", this, &AVehicleTestCharacter::TurnAtRate);
+	inputComponent->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
+	inputComponent->BindAxis("LookUpRate", this, &AVehicleTestCharacter::LookUpAtRate);
+
+	// handle touch devices
+	inputComponent->BindTouch(IE_Pressed, this, &AVehicleTestCharacter::TouchStarted);
+	inputComponent->BindTouch(IE_Released, this, &AVehicleTestCharacter::TouchStopped);
+
+	// VR headset functionality
+	inputComponent->BindAction("ResetVR", IE_Pressed, this, &AVehicleTestCharacter::OnResetVR);
+}
+
+void AVehicleTestCharacter::EnterVehicle(AVehicle* vehicle)
+{
+	if (IsAttachedTo(vehicle))
+		return;
+
+	AttachToActor(vehicle, FAttachmentTransformRules::KeepWorldTransform);
+	
+	AVT_PlayerController* player_controller = Cast<AVT_PlayerController>(GetController());
+	if (player_controller != nullptr)
+	{
+		player_controller->Possess(vehicle);
+
+		player_controller->SetViewTarget(this);
+	}
+}
+
+void AVehicleTestCharacter::LeaveVehicle(AVehicle* vehicle)
+{
+	if (IsAttachedTo(vehicle))
+	{
+		DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+
+		vehicle->GetController()->Possess(this);
+	}
+}
+
+void AVehicleTestCharacter::OnResetVR()
+{
+	UHeadMountedDisplayFunctionLibrary::ResetOrientationAndPosition();
+}
+
+void AVehicleTestCharacter::TouchStarted(ETouchIndex::Type FingerIndex, FVector Location)
+{
+	Jump();
+}
+
+void AVehicleTestCharacter::TouchStopped(ETouchIndex::Type FingerIndex, FVector Location)
+{
+	StopJumping();
+}
+
+void AVehicleTestCharacter::TurnAtRate(float Rate)
+{
+	// calculate delta for this frame from the rate information
+	AddControllerYawInput(Rate * BaseTurnRate * GetWorld()->GetDeltaSeconds());
+}
+
+void AVehicleTestCharacter::LookUpAtRate(float Rate)
+{
+	// calculate delta for this frame from the rate information
+	AddControllerPitchInput(Rate * BaseLookUpRate * GetWorld()->GetDeltaSeconds());
+}
+
+void AVehicleTestCharacter::MoveForward(float Value)
+{
+	if ((Controller != NULL) && (Value != 0.0f))
+	{
+		// find out which way is forward
+		const FRotator Rotation = Controller->GetControlRotation();
+		const FRotator YawRotation(0, Rotation.Yaw, 0);
+
+		// get forward vector
+		const FVector Direction = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+		AddMovementInput(Direction, Value);
+	}
+}
+
+void AVehicleTestCharacter::MoveRight(float Value)
+{
+	if ( (Controller != NULL) && (Value != 0.0f) )
+	{
+		// find out which way is right
+		const FRotator Rotation = Controller->GetControlRotation();
+		const FRotator YawRotation(0, Rotation.Yaw, 0);
+	
+		// get right vector 
+		const FVector Direction = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+		// add movement in that direction
+		AddMovementInput(Direction, Value);
+	}
+}

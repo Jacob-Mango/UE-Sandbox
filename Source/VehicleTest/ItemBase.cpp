@@ -2,7 +2,7 @@
 
 #include "ItemBase.h"
 
-#include "InventoryComponent.h"
+#include "Inventory/InventoryComponent.h"
 
 
 // Sets default values
