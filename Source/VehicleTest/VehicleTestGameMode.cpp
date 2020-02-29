@@ -2,7 +2,7 @@
 
 #include "VehicleTestGameMode.h"
 
-#include "Player/VehicleTestCharacter.h"
+#include "Player/VT_PlayerBase.h"
 
 #include "UObject/ConstructorHelpers.h"
 
